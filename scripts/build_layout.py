@@ -2,7 +2,8 @@
 """Build the exact spritesheet guide image and coordinate manifest.
 
 The plan JSON is authored by the skill after deciding actions and frame semantics.
-This script is the source of truth for all frame rectangles.
+This script is the source of truth for all frame rectangles, frame timing, and
+chroma-key background requirements.
 """
 
 from __future__ import annotations
@@ -22,6 +23,10 @@ SUPPORTED_CANVASES: tuple[tuple[int, int], ...] = (
     (1536, 1024),
     (1024, 1536),
 )
+
+# Mandatory chroma-key background for every generated frame.
+CHROMA_BACKGROUND = "#FF00FF"
+CHROMA_RGB = (255, 0, 255)
 
 
 def slugify(value: str) -> str:
@@ -44,6 +49,10 @@ def validate_plan(plan: dict[str, Any]) -> None:
     actions = plan.get("actions")
     if not isinstance(actions, list) or not actions:
         raise ValueError("plan.actions must be a non-empty list")
+
+    background = plan.get("background")
+    if background is not None and background.upper() != CHROMA_BACKGROUND:
+        raise ValueError(f"background is fixed to {CHROMA_BACKGROUND}")
 
     canvas = plan.get("canvas")
     if canvas is not None:
@@ -76,6 +85,11 @@ def validate_plan(plan: dict[str, Any]) -> None:
         for index, frame in enumerate(frames):
             if not isinstance(frame.get("description"), str) or not frame["description"].strip():
                 raise ValueError(f"action {action_id}, frame {index} needs a description")
+            duration_ms = frame.get("duration_ms")
+            if type(duration_ms) is not int or duration_ms <= 0:
+                raise ValueError(
+                    f"action {action_id}, frame {index} needs an explicit positive integer duration_ms"
+                )
 
 
 def canvas_score(width: int, height: int, actions: list[dict[str, Any]]) -> tuple[float, float, int, int]:
@@ -142,7 +156,7 @@ def build_manifest(plan: dict[str, Any]) -> dict[str, Any]:
                     "w": frame_w,
                     "h": row_h,
                     "description": frame["description"],
-                    "duration_ms": int(frame.get("duration_ms", action.get("duration_ms", 100))),
+                    "duration_ms": int(frame["duration_ms"]),
                 }
             )
             x += frame_w
@@ -167,7 +181,7 @@ def build_manifest(plan: dict[str, Any]) -> dict[str, Any]:
         "version": 1,
         "subject": plan.get("subject", ""),
         "style": plan.get("style", ""),
-        "background": plan.get("background", "transparent preferred; otherwise solid neutral"),
+        "background": CHROMA_BACKGROUND,
         "layout": "rows_by_action",
         "canvas": {"width": width, "height": height},
         "actions": manifest_actions,
@@ -177,7 +191,7 @@ def build_manifest(plan: dict[str, Any]) -> dict[str, Any]:
 def draw_guide(manifest: dict[str, Any], out_path: Path, line_width: int = 3) -> None:
     width = manifest["canvas"]["width"]
     height = manifest["canvas"]["height"]
-    image = Image.new("RGB", (width, height), "white")
+    image = Image.new("RGB", (width, height), CHROMA_RGB)
     draw = ImageDraw.Draw(image)
 
     # Draw each frame rectangle independently. Inclusive coordinates ensure the
@@ -200,18 +214,21 @@ def make_imagegen_prompt(manifest: dict[str, Any]) -> str:
         "CRITICAL: keep every black guide box/divider in exactly the same location in the output.",
         "Do not add, remove, merge, resize, shift, curve, or redraw the boxes.",
         "Each frame must stay completely inside its own rectangle; never cross a divider.",
+        f"MANDATORY BACKGROUND: every frame must use one flat, uniform {CHROMA_BACKGROUND} RGB(255,0,255) background.",
+        "Do not add gradients, shadows, texture, scenery, lighting variation, or other colors to the background.",
+        f"Avoid using the exact chroma color {CHROMA_BACKGROUND} inside the sprite itself when possible.",
         "Keep subject identity, scale, camera, palette, rendering style, and lighting consistent across all frames.",
-        "Use the same background treatment in every frame.",
         f"Subject: {manifest.get('subject', '')}",
         f"Style: {manifest.get('style', '')}",
-        f"Background: {manifest.get('background', '')}",
-        "Frame instructions follow. Coordinates are [x,y,w,h] from the top-left:",
+        f"Background: {CHROMA_BACKGROUND}",
+        "Frame instructions follow. Coordinates are [x,y,w,h] from the top-left; hold time is informational for animation export:",
     ]
     for action in manifest["actions"]:
         lines.append(f"ACTION {action['id']} ({action['name']}): {action.get('description', '')}")
         for frame in action["frames"]:
             lines.append(
-                f"- {frame['id']} [{frame['x']},{frame['y']},{frame['w']},{frame['h']}]: {frame['description']}"
+                f"- {frame['id']} [{frame['x']},{frame['y']},{frame['w']},{frame['h']}] "
+                f"hold={frame['duration_ms']}ms: {frame['description']}"
             )
     return "\n".join(lines) + "\n"
 

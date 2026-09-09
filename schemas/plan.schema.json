@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BurguerJohn/spritesheet_skill/schemas/plan.schema.json",
+  "title": "Spritesheet planning input",
+  "type": "object",
+  "required": ["subject", "canvas", "actions"],
+  "properties": {
+    "subject": {"type": "string", "minLength": 1},
+    "style": {"type": "string"},
+    "background": {"type": "string"},
+    "canvas": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "frames"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "loop": {"type": "boolean"},
+          "duration_ms": {"type": "integer", "minimum": 1},
+          "frames": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["description"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "description": {"type": "string", "minLength": 1},
+                "duration_ms": {"type": "integer", "minimum": 1}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

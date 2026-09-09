@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BurguerJohn/spritesheet_skill/schemas/spritesheet.schema.json",
+  "title": "Deterministic spritesheet coordinate manifest",
+  "type": "object",
+  "required": ["version", "layout", "canvas", "actions"],
+  "properties": {
+    "version": {"const": 1},
+    "subject": {"type": "string"},
+    "style": {"type": "string"},
+    "background": {"type": "string"},
+    "layout": {"const": "rows_by_action"},
+    "canvas": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "row", "x", "y", "w", "h", "loop", "frames"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "row": {"type": "integer", "minimum": 0},
+          "x": {"type": "integer", "minimum": 0},
+          "y": {"type": "integer", "minimum": 0},
+          "w": {"type": "integer", "minimum": 1},
+          "h": {"type": "integer", "minimum": 1},
+          "loop": {"type": "boolean"},
+          "frames": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "index", "x", "y", "w", "h", "description", "duration_ms"],
+              "properties": {
+                "id": {"type": "string"},
+                "index": {"type": "integer", "minimum": 0},
+                "x": {"type": "integer", "minimum": 0},
+                "y": {"type": "integer", "minimum": 0},
+                "w": {"type": "integer", "minimum": 1},
+                "h": {"type": "integer", "minimum": 1},
+                "description": {"type": "string", "minLength": 1},
+                "duration_ms": {"type": "integer", "minimum": 1}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

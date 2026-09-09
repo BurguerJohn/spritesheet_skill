@@ -1,43 +1,43 @@
 {
   "subject": "a friendly medium-sized brown dog with a red collar",
   "style": "clean 2D game sprite, side view, consistent proportions and camera",
-  "background": "plain white background inside every frame",
+  "background": "#FF00FF",
   "canvas": {"mode": "auto"},
   "actions": [
     {
       "id": "idle",
       "name": "Idle",
       "description": "The dog remains in place with a subtle breathing loop.",
-      "duration_ms": 180,
+      "loop": true,
       "frames": [
-        {"description": "Neutral standing pose, chest relaxed."},
-        {"description": "Chest rises slightly while the head stays steady."},
-        {"description": "Chest reaches the top of the breathing motion."},
-        {"description": "Chest settles back toward the neutral pose."}
+        {"description": "Neutral standing pose, chest relaxed.", "duration_ms": 180},
+        {"description": "Chest rises slightly while the head stays steady.", "duration_ms": 160},
+        {"description": "Chest reaches the top of the breathing motion.", "duration_ms": 220},
+        {"description": "Chest settles back toward the neutral pose.", "duration_ms": 160}
       ]
     },
     {
       "id": "walk",
       "name": "Walk",
       "description": "A seamless side-view walking cycle moving in place.",
-      "duration_ms": 110,
+      "loop": true,
       "frames": [
-        {"description": "Front-left leg reaches forward; rear-right leg pushes back."},
-        {"description": "Body passes over the planted legs; paws near the body center."},
-        {"description": "Front-right leg reaches forward; rear-left leg pushes back."},
-        {"description": "Opposite passing pose; body returns toward the first contact."}
+        {"description": "Front-left leg reaches forward; rear-right leg pushes back.", "duration_ms": 110},
+        {"description": "Body passes over the planted legs; paws near the body center.", "duration_ms": 90},
+        {"description": "Front-right leg reaches forward; rear-left leg pushes back.", "duration_ms": 110},
+        {"description": "Opposite passing pose; body returns toward the first contact.", "duration_ms": 90}
       ]
     },
     {
       "id": "sit",
       "name": "Sit",
       "description": "The dog transitions from standing to a seated pose and holds it.",
-      "duration_ms": 140,
+      "loop": false,
       "frames": [
-        {"description": "Standing upright, preparing to sit."},
-        {"description": "Hindquarters lower halfway while front legs remain planted."},
-        {"description": "Hindquarters nearly touch the ground; torso becomes upright."},
-        {"description": "Fully seated pose, stable and relaxed."}
+        {"description": "Standing upright, preparing to sit.", "duration_ms": 120},
+        {"description": "Hindquarters lower halfway while front legs remain planted.", "duration_ms": 130},
+        {"description": "Hindquarters nearly touch the ground; torso becomes upright.", "duration_ms": 160},
+        {"description": "Fully seated pose, stable and relaxed.", "duration_ms": 320}
       ]
     }
   ]

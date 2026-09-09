@@ -13,7 +13,10 @@ def make_actions(action_count: int, frames_per_action: int):
     return [
         {
             "name": f"action_{a}",
-            "frames": [{"description": f"frame_{i}"} for i in range(frames_per_action)],
+            "frames": [
+                {"description": f"frame_{i}", "duration_ms": 100}
+                for i in range(frames_per_action)
+            ],
         }
         for a in range(action_count)
     ]
@@ -41,29 +44,60 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mod.build_manifest(plan)
 
+    def test_frame_duration_is_required(self):
+        plan = {
+            "canvas": {"width": 1024, "height": 1024},
+            "actions": [{"name": "a", "frames": [{"description": "missing timing"}]}],
+        }
+        with self.assertRaises(ValueError):
+            mod.build_manifest(plan)
+
+    def test_non_magenta_background_is_rejected(self):
+        plan = {
+            "background": "#FFFFFF",
+            "canvas": {"width": 1024, "height": 1024},
+            "actions": make_actions(1, 1),
+        }
+        with self.assertRaises(ValueError):
+            mod.build_manifest(plan)
+
     def test_rows_fill_canvas_without_overlap_or_gaps(self):
         plan = {
             "canvas": {"width": 1024, "height": 1024},
             "actions": [
-                {"name": "a", "frames": [{"description": str(i)} for i in range(4)]},
-                {"name": "b", "frames": [{"description": str(i)} for i in range(3)]},
+                {
+                    "name": "a",
+                    "frames": [{"description": str(i), "duration_ms": 100} for i in range(4)],
+                },
+                {
+                    "name": "b",
+                    "frames": [{"description": str(i), "duration_ms": 120} for i in range(3)],
+                },
             ],
         }
         manifest = mod.build_manifest(plan)
+        self.assertEqual(manifest["background"], "#FF00FF")
         self.assertEqual([a["h"] for a in manifest["actions"]], [512, 512])
         self.assertEqual([f["w"] for f in manifest["actions"][0]["frames"]], [256] * 4)
         self.assertEqual(sum(f["w"] for f in manifest["actions"][1]["frames"]), 1024)
         self.assertEqual(manifest["actions"][1]["y"], 512)
+        self.assertEqual(manifest["actions"][1]["frames"][0]["duration_ms"], 120)
 
-    def test_guide_uses_frame_y_coordinate(self):
+    def test_guide_uses_magenta_background_and_frame_y_coordinate(self):
         from PIL import Image
         import tempfile
 
         plan = {
             "canvas": {"width": 1024, "height": 1024},
             "actions": [
-                {"name": "top", "frames": [{"description": "a"}, {"description": "b"}]},
-                {"name": "bottom", "frames": [{"description": "c"}]},
+                {
+                    "name": "top",
+                    "frames": [
+                        {"description": "a", "duration_ms": 100},
+                        {"description": "b", "duration_ms": 100},
+                    ],
+                },
+                {"name": "bottom", "frames": [{"description": "c", "duration_ms": 100}]},
             ],
         }
         manifest = mod.build_manifest(plan)
@@ -72,7 +106,7 @@ class LayoutTests(unittest.TestCase):
             mod.draw_guide(manifest, path, line_width=1)
             image = Image.open(path)
             self.assertEqual(image.getpixel((512, 1023)), (0, 0, 0))
-            self.assertEqual(image.getpixel((512, 768)), (255, 255, 255))
+            self.assertEqual(image.getpixel((512, 768)), (255, 0, 255))
 
 
 if __name__ == "__main__":

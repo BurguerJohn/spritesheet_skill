@@ -2,10 +2,7 @@
   "subject": "a friendly medium-sized brown dog with a red collar",
   "style": "clean 2D game sprite, side view, consistent proportions and camera",
   "background": "plain white background inside every frame",
-  "canvas": {
-    "width": 1024,
-    "height": 1024
-  },
+  "canvas": {"mode": "auto"},
   "actions": [
     {
       "id": "idle",

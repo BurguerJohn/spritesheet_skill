@@ -9,11 +9,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
+
+# GPT Image generation targets documented by OpenAI.
+SUPPORTED_CANVASES: tuple[tuple[int, int], ...] = (
+    (1024, 1024),
+    (1536, 1024),
+    (1024, 1536),
+)
 
 
 def slugify(value: str) -> str:
@@ -33,15 +41,25 @@ def partition(total: int, count: int) -> list[int]:
 
 
 def validate_plan(plan: dict[str, Any]) -> None:
-    canvas = plan.get("canvas", {})
-    width = canvas.get("width")
-    height = canvas.get("height")
-    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
-        raise ValueError("canvas.width and canvas.height must be positive integers")
-
     actions = plan.get("actions")
     if not isinstance(actions, list) or not actions:
         raise ValueError("plan.actions must be a non-empty list")
+
+    canvas = plan.get("canvas")
+    if canvas is not None:
+        if not isinstance(canvas, dict):
+            raise ValueError("plan.canvas must be an object when provided")
+        if canvas.get("mode") == "auto":
+            if set(canvas) != {"mode"}:
+                raise ValueError('canvas {"mode":"auto"} cannot contain other fields')
+        else:
+            width = canvas.get("width")
+            height = canvas.get("height")
+            if not isinstance(width, int) or not isinstance(height, int):
+                raise ValueError("canvas must be auto or contain integer width and height")
+            if (width, height) not in SUPPORTED_CANVASES:
+                supported = ", ".join(f"{w}x{h}" for w, h in SUPPORTED_CANVASES)
+                raise ValueError(f"unsupported ImageGen canvas {width}x{height}; use one of: {supported}")
 
     seen: set[str] = set()
     for action in actions:
@@ -60,10 +78,46 @@ def validate_plan(plan: dict[str, Any]) -> None:
                 raise ValueError(f"action {action_id}, frame {index} needs a description")
 
 
+def canvas_score(width: int, height: int, actions: list[dict[str, Any]]) -> tuple[float, float, int, int]:
+    """Score a supported canvas for this action/frame geometry.
+
+    Priority:
+    1. maximize the smallest short side among every frame;
+    2. prefer frame rectangles closer to square;
+    3. prefer more total pixels;
+    4. prefer a square canvas only as a final tie-breaker.
+    """
+    row_heights = partition(height, len(actions))
+    frame_sizes: list[tuple[int, int]] = []
+    for action, row_h in zip(actions, row_heights):
+        for frame_w in partition(width, len(action["frames"])):
+            frame_sizes.append((frame_w, row_h))
+
+    min_short_side = min(min(frame_w, frame_h) for frame_w, frame_h in frame_sizes)
+    shape_penalty = sum(abs(math.log(frame_w / frame_h)) for frame_w, frame_h in frame_sizes) / len(frame_sizes)
+    return (
+        float(min_short_side),
+        -shape_penalty,
+        width * height,
+        1 if width == height else 0,
+    )
+
+
+def choose_canvas(actions: list[dict[str, Any]]) -> tuple[int, int]:
+    """Pick the ImageGen-supported canvas that best fits the planned frames."""
+    return max(SUPPORTED_CANVASES, key=lambda size: canvas_score(size[0], size[1], actions))
+
+
+def resolve_canvas(plan: dict[str, Any]) -> tuple[int, int]:
+    canvas = plan.get("canvas")
+    if canvas is None or canvas.get("mode") == "auto":
+        return choose_canvas(plan["actions"])
+    return int(canvas["width"]), int(canvas["height"])
+
+
 def build_manifest(plan: dict[str, Any]) -> dict[str, Any]:
     validate_plan(plan)
-    width = plan["canvas"]["width"]
-    height = plan["canvas"]["height"]
+    width, height = resolve_canvas(plan)
     actions = plan["actions"]
 
     row_heights = partition(height, len(actions))
@@ -141,7 +195,8 @@ def draw_guide(manifest: dict[str, Any], out_path: Path, line_width: int = 3) ->
 def make_imagegen_prompt(manifest: dict[str, Any]) -> str:
     lines = [
         "Create a spritesheet by editing/filling the supplied guide image.",
-        f"Canvas must remain exactly {manifest['canvas']['width']}x{manifest['canvas']['height']} pixels.",
+        f"Target canvas: {manifest['canvas']['width']}x{manifest['canvas']['height']} pixels.",
+        "This target was selected from the supported GPT Image output sizes.",
         "CRITICAL: keep every black guide box/divider in exactly the same location in the output.",
         "Do not add, remove, merge, resize, shift, curve, or redraw the boxes.",
         "Each frame must stay completely inside its own rectangle; never cross a divider.",
@@ -180,6 +235,7 @@ def main() -> None:
     draw_guide(manifest, guide_path, max(1, args.line_width))
     prompt_path.write_text(make_imagegen_prompt(manifest), encoding="utf-8")
 
+    print(f"canvas={manifest['canvas']['width']}x{manifest['canvas']['height']}")
     print(manifest_path)
     print(guide_path)
     print(prompt_path)

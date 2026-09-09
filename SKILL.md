@@ -23,7 +23,7 @@ Also keep `frames/<action>/*.png` when possible; these are useful intermediate e
 
 ### 1. Interpret the request
 
-Identify the subject, requested art direction, requested actions, canvas size, background requirements, animation timing, and any constraints.
+Identify the subject, requested art direction, requested actions, background requirements, animation timing, and any constraints.
 
 If the user specifies actions, use them. If the user does not specify actions, choose a compact useful default set appropriate for the subject. Prefer 2–5 distinct actions rather than creating an excessively large sheet.
 
@@ -56,7 +56,27 @@ Default guidance when the user gives no frame count:
 
 Create a planning JSON matching the shape of `examples/dog.plan.json`.
 
-### 3. Create exact geometry with Pillow
+### 3. Choose an ImageGen-native canvas and create exact geometry with Pillow
+
+The generation canvas must always be one of these GPT Image output targets:
+
+- `1024x1024`
+- `1536x1024`
+- `1024x1536`
+
+Unless the user explicitly chooses one of those supported sizes, set:
+
+```json
+"canvas": {"mode": "auto"}
+```
+
+The layout script scores all supported canvases after the actions and frame counts are known. It prioritizes:
+
+1. maximizing the smallest short side of any frame box;
+2. keeping frame boxes as close to square as practical;
+3. using more total pixels when geometry is otherwise comparable.
+
+This normally selects landscape for actions with many frames per row, portrait for many action rows, and square for balanced grids.
 
 Run:
 
@@ -80,7 +100,8 @@ Use `layout_boxes.png` as the input/reference image for ImageGen and use `imageg
 
 Critical ImageGen constraints:
 
-- preserve the guide aspect ratio and box geometry; preserve exact canvas dimensions when the ImageGen surface supports it;
+- request the exact target size selected in `spritesheet.json.canvas` whenever the ImageGen surface exposes an exact size control;
+- preserve the guide aspect ratio and box geometry;
 - preserve every black guide border/divider in the exact same position;
 - never merge, remove, move, bend, resize, or redraw boxes;
 - each frame's art must remain completely inside its own rectangle;
@@ -91,7 +112,7 @@ Critical ImageGen constraints:
 
 Save the untouched result as `output/spritesheet_imagegen_raw.png`.
 
-ImageGen may return a different pixel resolution even when the aspect ratio is preserved. Normalize it deterministically before cropping:
+The normal path is now to generate at the same dimensions used by Pillow, so no resize should be necessary. However, some ImageGen surfaces may still return a different pixel resolution while preserving aspect ratio. Keep the normalization step only as a fallback:
 
 ```bash
 python scripts/normalize_sheet.py \
@@ -100,7 +121,7 @@ python scripts/normalize_sheet.py \
   output/spritesheet_generated.png
 ```
 
-This step is allowed only when the raw output has exactly the same aspect ratio as the manifest. Never stretch a different aspect ratio. If the guide lines moved or warped, regenerate instead of pretending the coordinates still match.
+If the raw image already matches the manifest dimensions, this should preserve it without a geometry-changing resize. If the raw output differs, normalization is allowed only when it has exactly the same aspect ratio as the manifest. Never stretch a different aspect ratio. If the guide lines moved or warped, regenerate instead of pretending the coordinates still match.
 
 ### 5. Extract every frame and create per-action GIFs with FFmpeg
 
@@ -136,7 +157,7 @@ Return download links/references for the guide, raw ImageGen sheet, normalized s
 
 ```json
 {
-  "canvas": {"width": 1024, "height": 1024},
+  "canvas": {"width": 1536, "height": 1024},
   "actions": [
     {
       "id": "walk",
@@ -146,7 +167,7 @@ Return download links/references for the guide, raw ImageGen sheet, normalized s
           "index": 0,
           "x": 0,
           "y": 0,
-          "w": 256,
+          "w": 384,
           "h": 512,
           "description": "...",
           "duration_ms": 100
@@ -162,6 +183,7 @@ Coordinates are half-open crop rectangles conceptually: pixels from `x` through 
 ## Design principles
 
 - Geometry first, generation second.
+- Use an ImageGen-native target size for the Pillow guide.
 - JSON coordinates are authoritative.
 - Motion continuity matters more than maximizing frame count.
 - Keep sheets reasonably small so each frame has enough visual resolution.

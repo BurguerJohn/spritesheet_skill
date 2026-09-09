@@ -3,19 +3,28 @@
   "$id": "https://github.com/BurguerJohn/spritesheet_skill/schemas/plan.schema.json",
   "title": "Spritesheet planning input",
   "type": "object",
-  "required": ["subject", "canvas", "actions"],
+  "required": ["subject", "actions"],
   "properties": {
     "subject": {"type": "string", "minLength": 1},
     "style": {"type": "string"},
     "background": {"type": "string"},
     "canvas": {
-      "type": "object",
-      "required": ["width", "height"],
-      "properties": {
-        "width": {"type": "integer", "minimum": 1},
-        "height": {"type": "integer", "minimum": 1}
-      },
-      "additionalProperties": false
+      "description": "ImageGen-native generation canvas. Omit or use mode:auto to choose automatically.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {"mode": {"const": "auto"}},
+          "additionalProperties": false
+        },
+        {
+          "enum": [
+            {"width": 1024, "height": 1024},
+            {"width": 1536, "height": 1024},
+            {"width": 1024, "height": 1536}
+          ]
+        }
+      ]
     },
     "actions": {
       "type": "array",

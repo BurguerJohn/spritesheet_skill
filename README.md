@@ -1,4 +1,4 @@
-# spritesheet_skill
+# Spritesheet Builder
 
 A ChatGPT skill for building deterministic spritesheets with **Pillow for geometry**, **ImageGen for artwork**, and **FFmpeg for extraction/animation**.
 

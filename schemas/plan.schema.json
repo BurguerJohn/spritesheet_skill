@@ -3,11 +3,11 @@
   "$id": "https://github.com/BurguerJohn/spritesheet_skill/schemas/plan.schema.json",
   "title": "Spritesheet planning input",
   "type": "object",
-  "required": ["subject", "actions"],
+  "required": ["subject", "background", "actions"],
   "properties": {
     "subject": {"type": "string", "minLength": 1},
     "style": {"type": "string"},
-    "background": {"type": "string"},
+    "background": {"const": "#FF00FF"},
     "canvas": {
       "description": "ImageGen-native generation canvas. Omit or use mode:auto to choose automatically.",
       "oneOf": [
@@ -37,13 +37,12 @@
           "name": {"type": "string", "minLength": 1},
           "description": {"type": "string"},
           "loop": {"type": "boolean"},
-          "duration_ms": {"type": "integer", "minimum": 1},
           "frames": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["description"],
+              "required": ["description", "duration_ms"],
               "properties": {
                 "id": {"type": "string", "minLength": 1},
                 "description": {"type": "string", "minLength": 1},

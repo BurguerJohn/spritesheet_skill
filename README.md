@@ -7,9 +7,9 @@ A ChatGPT skill for building deterministic spritesheets with **Pillow for geomet
 ```text
 user request
     ↓
-actions + frame semantics
+actions + frame semantics + per-frame duration_ms
     ↓
-plan.json
+plan.json (background fixed to #FF00FF)
     ↓
 auto-select ImageGen-native canvas
     ├── 1024x1024
@@ -17,8 +17,8 @@ auto-select ImageGen-native canvas
     └── 1024x1536
     ↓
 Python / Pillow
-    ├── layout_boxes.png
-    ├── spritesheet.json (x, y, w, h + frame descriptions)
+    ├── layout_boxes.png (#FF00FF + black dividers)
+    ├── spritesheet.json (x, y, w, h + duration_ms + descriptions)
     └── imagegen_prompt.txt
     ↓
 ImageGen fills the exact guide boxes at the selected aspect/target size
@@ -37,6 +37,23 @@ FFmpeg crops using spritesheet.json
 ```
 
 The critical rule is that **Pillow-generated geometry and `spritesheet.json` are the source of truth**. Image generation is not allowed to redefine the boxes.
+
+## Chroma background and frame timing
+
+Every spritesheet uses one fixed empty-background color: **`#FF00FF` / RGB(255,0,255)**. `build_layout.py` creates the Pillow guide with that magenta fill and rejects a plan that requests another background. The ImageGen prompt also requires the same flat color in every frame.
+
+Every frame must contain its own explicit positive `duration_ms`. Different frames in the same action can use different hold times, for example:
+
+```json
+"frames": [
+  {"description": "anticipation", "duration_ms": 160},
+  {"description": "fast transition", "duration_ms": 70},
+  {"description": "impact", "duration_ms": 120},
+  {"description": "held final pose", "duration_ms": 300}
+]
+```
+
+FFmpeg supports this through the concat demuxer: the exporter writes a separate `duration` entry for each frame image before encoding the action GIF. GIF delays are stored at centisecond granularity, so multiples of 10 ms are preferred when practical.
 
 ## ImageGen-native canvas selection
 
@@ -84,7 +101,7 @@ Build the deterministic layout and manifest:
 python scripts/build_layout.py examples/dog.plan.json --out-dir output
 ```
 
-The included dog example has 3 actions with 4 frames each, so auto-selection chooses a landscape `1536x1024` generation canvas.
+The included dog example has 3 actions with 4 frames each, so auto-selection chooses a landscape `1536x1024` generation canvas. Its frames intentionally demonstrate different `duration_ms` values.
 
 After using `output/layout_boxes.png` + `output/imagegen_prompt.txt` with ImageGen, save the untouched result as `output/spritesheet_imagegen_raw.png`, then normalize/verify it:
 
@@ -95,7 +112,7 @@ python scripts/normalize_sheet.py \
   output/spritesheet_generated.png
 ```
 
-Then export frames, per-action GIFs, and the synchronized combined GIF:
+Then export frames, variable-timing per-action GIFs, and the synchronized combined GIF:
 
 ```bash
 python scripts/extract_and_gif.py \

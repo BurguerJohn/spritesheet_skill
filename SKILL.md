@@ -16,8 +16,9 @@ Always return all of these artifacts:
 3. `spritesheet_generated.png` — geometry-normalized PNG used for deterministic cropping.
 4. `spritesheet.json` — action/frame manifest with exact `x`, `y`, `w`, `h` and frame descriptions.
 5. `gifs/<action>.gif` — one animated GIF for every action.
+6. `gifs/all_actions.gif` — synchronized preview containing every action, all reaching the loop boundary at the same instant.
 
-Also keep `frames/<action>/*.png` when possible; these are useful intermediate exports.
+Also keep `frames/<action>/*.png` when possible; these are useful intermediate exports. Keep `gifs/all_actions.json` as synchronization metadata.
 
 ## Workflow
 
@@ -123,7 +124,7 @@ python scripts/normalize_sheet.py \
 
 If the raw image already matches the manifest dimensions, this should preserve it without a geometry-changing resize. If the raw output differs, normalization is allowed only when it has exactly the same aspect ratio as the manifest. Never stretch a different aspect ratio. If the guide lines moved or warped, regenerate instead of pretending the coordinates still match.
 
-### 5. Extract every frame and create per-action GIFs with FFmpeg
+### 5. Extract every frame and create GIF outputs with FFmpeg
 
 Run:
 
@@ -136,6 +137,29 @@ python scripts/extract_and_gif.py \
 
 The script uses FFmpeg crop filters with the exact JSON coordinates, exports PNG frames, and builds one palette-optimized GIF for each action.
 
+If integer pixel remainders make frames in one action differ by 1 px, keep the exported crops exact and only pad temporary GIF inputs to the largest frame size. Never stretch or rescale individual action frames just to make FFmpeg concat accept them.
+
+After all per-action GIFs exist, always create `gifs/all_actions.gif`:
+
+1. measure the actual one-cycle duration of every action GIF with FFprobe;
+2. choose the longest action duration as the target duration;
+3. use exactly one cycle from every source GIF;
+4. retime each shorter GIF with FFmpeg `setpts` so it ends at the same target timestamp as the longest GIF;
+5. preserve each action's pixel size and only pad to a common cell size;
+6. use a horizontal row for up to 4 actions and a compact near-square grid for 5 or more actions, unless the user explicitly requests horizontal or grid;
+7. encode `all_actions.gif` with infinite looping so every action restarts at the same instant;
+8. write `gifs/all_actions.json` containing source durations, target duration, layout, and playback-speed factors.
+
+The playback speed for action `i` is:
+
+```text
+speed_i = source_duration_i / longest_duration
+```
+
+So a 0.4 s action next to a 0.8 s action runs at `0.5x`, while the 0.8 s action runs at `1.0x`; both finish at 0.8 s and restart together.
+
+The combined file is timing-perfect. For a visually seamless boundary, any action marked `loop=true` must also have a first/last pose that was planned to loop seamlessly. Do not claim a one-shot action has a visually seamless boundary unless it actually does.
+
 Do not replace the JSON crop coordinates with visual guesses.
 
 ### 6. Validate and return artifacts
@@ -146,10 +170,12 @@ Before answering:
 - verify generated sheet dimensions equal `spritesheet.json.canvas`;
 - verify every action has the expected number of extracted frame PNGs;
 - verify one GIF exists per action;
+- verify `gifs/all_actions.gif` and `gifs/all_actions.json` exist;
+- verify the combined GIF duration equals its synchronization target and every source action is retimed to that target;
 - visually inspect at least the guide and final spritesheet when tools allow;
 - report any ImageGen inconsistency instead of pretending the animation is correct.
 
-Return download links/references for the guide, raw ImageGen sheet, normalized sheet, JSON, and every GIF.
+Return download links/references for the guide, raw ImageGen sheet, normalized sheet, JSON, every action GIF, and the synchronized `all_actions.gif`.
 
 ## JSON contract
 
@@ -186,6 +212,7 @@ Coordinates are half-open crop rectangles conceptually: pixels from `x` through 
 - Use an ImageGen-native target size for the Pillow guide.
 - JSON coordinates are authoritative.
 - Motion continuity matters more than maximizing frame count.
+- The combined preview must synchronize all action cycle boundaries.
 - Keep sheets reasonably small so each frame has enough visual resolution.
 - Prefer a simple background when the main goal is a game-ready sprite animation.
 - If transparency is essential and ImageGen does not preserve it reliably, generate on a flat chroma/background and perform a deliberate post-processing step only when requested or clearly necessary.

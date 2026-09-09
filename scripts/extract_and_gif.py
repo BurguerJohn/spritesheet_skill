@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crop spritesheet frames, build per-action GIFs, and build a synchronized combined GIF."""
+"""Crop spritesheet frames, build variable-timing action GIFs, and a synchronized combined GIF."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+
+CHROMA_FFMPEG = "0xFF00FF"
 
 
 def run(cmd: list[str]) -> None:
@@ -88,8 +90,8 @@ def crop_frame(ffmpeg: str, sheet: Path, frame: dict[str, Any], out_path: Path) 
 
 
 def pad_frame(ffmpeg: str, source: Path, width: int, height: int, out_path: Path) -> None:
-    """Pad a cropped frame without scaling so concat always sees one geometry."""
-    pad = f"pad={width}:{height}:0:0:color=black@0"
+    """Pad a cropped frame with chroma magenta, without scaling."""
+    pad = f"pad={width}:{height}:0:0:color={CHROMA_FFMPEG}"
     run(
         [
             ffmpeg,
@@ -121,6 +123,8 @@ def build_gif(
         raise ValueError("frame_paths must not be empty")
     if len(frame_paths) != len(durations_ms) or len(frame_paths) != len(frame_sizes):
         raise ValueError("frame paths, durations, and sizes must have matching lengths")
+    if any(type(duration) is not int or duration <= 0 for duration in durations_ms):
+        raise ValueError("every GIF frame needs a positive integer duration_ms")
 
     max_w = max(width for width, _ in frame_sizes)
     max_h = max(height for _, height in frame_sizes)
@@ -141,7 +145,7 @@ def build_gif(
         for path, duration_ms in zip(normalized_paths, durations_ms):
             safe = str(path.resolve()).replace("'", "'\\''")
             lines.append(f"file '{safe}'")
-            lines.append(f"duration {max(1, duration_ms) / 1000:.6f}")
+            lines.append(f"duration {duration_ms / 1000:.6f}")
         # Concat applies a duration to an entry only when another entry follows it.
         safe_last = str(normalized_paths[-1].resolve()).replace("'", "'\\''")
         lines.append(f"file '{safe_last}'")
@@ -168,7 +172,7 @@ def build_gif(
                 "-filter_complex",
                 filter_complex,
                 "-t",
-                f"{sum(max(1, d) for d in durations_ms) / 1000:.6f}",
+                f"{sum(durations_ms) / 1000:.6f}",
                 "-loop",
                 loop_value,
                 str(out_path),
@@ -229,7 +233,7 @@ def build_combined_gif(
         label = f"v{index}"
         filters.append(
             f"[{index}:v]settb=AVTB,setpts=(PTS-STARTPTS)*{factor:.12f},"
-            f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2:color=white,"
+            f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2:color={CHROMA_FFMPEG},"
             f"tpad=stop_mode=clone:stop_duration={target_duration:.6f},"
             f"trim=duration={target_duration:.6f},fps=100[{label}]"
         )
@@ -247,7 +251,7 @@ def build_combined_gif(
             positions.append(f"{col * cell_w}_{row * cell_h}")
         filters.append(
             "".join(labels)
-            + f"xstack=inputs={len(gif_paths)}:layout={'|'.join(positions)}:fill=white[stacked]"
+            + f"xstack=inputs={len(gif_paths)}:layout={'|'.join(positions)}:fill={CHROMA_FFMPEG}[stacked]"
         )
 
     filters.append(
@@ -277,6 +281,7 @@ def build_combined_gif(
         "columns": columns,
         "rows": rows,
         "cell": {"width": cell_w, "height": cell_h},
+        "background": "#FF00FF",
         "target_duration_seconds": target_duration,
         "actions": [
             {
@@ -323,7 +328,7 @@ def main() -> None:
             frame_path = action_dir / f"{frame['index']:03d}_{frame['id']}.png"
             crop_frame(ffmpeg, args.sheet, frame, frame_path)
             frame_paths.append(frame_path)
-            durations.append(int(frame.get("duration_ms", 100)))
+            durations.append(int(frame["duration_ms"]))
             frame_sizes.append((int(frame["w"]), int(frame["h"])))
 
         gif_path = gifs_root / f"{action['id']}.gif"

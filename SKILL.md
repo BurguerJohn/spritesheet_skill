@@ -17,7 +17,7 @@ Always return all of these artifacts:
 2. `spritesheet_imagegen_raw.png` — raw ImageGen output, preserving the guide boxes and magenta background.
 3. `spritesheet_generated.png` — geometry-normalized PNG used for deterministic cropping.
 4. `spritesheet.json` — action/frame manifest with exact `x`, `y`, `w`, `h`, `duration_ms`, and frame descriptions.
-5. `gifs/<action>.gif` — one animated GIF for every action, honoring each frame's individual hold time.
+5. `gifs/<action>.gif` — one infinitely looping animated GIF for every action, honoring each frame's individual hold time.
 6. `gifs/all_actions.gif` — synchronized preview containing every action, all reaching the loop boundary at the same instant.
 
 Also keep `frames/<action>/*.png` when possible; these are useful intermediate exports. Keep `gifs/all_actions.json` as synchronization metadata.
@@ -44,7 +44,7 @@ Do not invent actions that conflict with the subject or user intent.
 For each action:
 
 - choose the frame count;
-- define whether it loops;
+- define whether its poses form a seamless loop (`loop`); this is motion metadata, not GIF playback control; all exported GIF previews repeat infinitely;
 - assign an explicit positive integer `duration_ms` to **every individual frame**;
 - allow different frames in the same action to have different durations when the motion benefits from anticipation, impact, pause, recovery, or a held pose;
 - write a concrete visual description for every frame;
@@ -67,7 +67,7 @@ Timing guidance when the user gives no timing:
 - anticipation/recovery frame: roughly 120–220 ms;
 - intentional hold or final pose: roughly 180–500 ms when appropriate.
 
-GIF stores frame delays at centisecond granularity, so multiples of 10 ms are preferred when practical. Keep the requested/planned `duration_ms` in JSON even though final GIF timing may be quantized to the nearest representable delay.
+GIF stores delays in multiples of 10 ms, but many viewers slow 10 ms delays to 100 ms. Export every hold at a minimum of 20 ms (at most 50 fps). Keep the requested `duration_ms` in JSON; individual GIF holds are rounded to the nearest 10 ms and clamped to 20 ms. The concat input time base may remain 100 fps for timestamp precision; this must not become a 100 fps output stream.
 
 Create a planning JSON matching the shape of `examples/dog.plan.json`. Always set:
 
@@ -165,24 +165,24 @@ If integer pixel remainders make frames in one action differ by 1 px, keep the e
 
 After all per-action GIFs exist, always create `gifs/all_actions.gif`:
 
-1. measure the actual one-cycle duration of every action GIF with FFprobe;
-2. choose the longest action duration as the target duration;
-3. use exactly one cycle from every source GIF;
-4. retime each shorter GIF with FFmpeg `setpts` so it ends at the same target timestamp as the longest GIF;
+1. sum each action's `frames[].duration_ms` from `spritesheet.json`, applying the same per-frame GIF quantization as the individual exporter (nearest 10 ms, minimum 20 ms);
+2. use the largest of those JSON-derived totals as the shared duration, rounded upward to a whole 20 ms tick (at most 10 ms extra after centisecond quantization);
+3. use exactly one cycle from every source GIF, ignoring its infinite-loop metadata;
+4. use FFmpeg `setpts` to retime each action to the shared duration; FFprobe may validate output durations, but must not decide the target or playback speeds;
 5. preserve each action's pixel size and only pad to a common cell size;
 6. use a horizontal row for up to 4 actions and a compact near-square grid for 5 or more actions, unless the user explicitly requests horizontal or grid;
-7. encode `all_actions.gif` with infinite looping so every action restarts at the same instant;
-8. write `gifs/all_actions.json` containing source durations, target duration, layout, and playback-speed factors.
+7. encode the combined preview at **50 fps**, with a **20 ms final-frame delay** and **infinite looping**; never emit 10 ms output holds;
+8. write `gifs/all_actions.json` with the timing source, planned and quantized source durations, target duration, fps, layout, and playback-speed factors.
 
 The playback speed for action `i` is:
 
 ```text
-speed_i = source_duration_i / longest_duration
+speed_i = quantized_json_duration_i / target_duration
 ```
 
-So a 0.4 s action next to a 0.8 s action runs at `0.5x`, while the 0.8 s action runs at `1.0x`; both finish at 0.8 s and restart together.
+A 0.4 s action next to a 0.8 s action runs at `0.5x`, while the 0.8 s action runs at `1.0x`; both finish at 0.8 s and restart together. Shorter actions are intentionally slowed for synchronization. Frame transitions in the combined preview are sampled on a 20 ms grid; the individual GIFs retain their variable holds.
 
-The combined file is timing-perfect. For a visually seamless boundary, any action marked `loop=true` must also have a first/last pose that was planned to loop seamlessly. Do not claim a one-shot action has a visually seamless boundary unless it actually does.
+All GIFs repeat infinitely, including previews of actions marked `loop=false`. That flag describes whether the poses were authored to join seamlessly; repeating a one-shot preview does not make its boundary visually seamless.
 
 Do not replace the JSON crop coordinates with visual guesses.
 
@@ -195,10 +195,11 @@ Before answering:
 - verify generated sheet dimensions equal `spritesheet.json.canvas`;
 - verify every frame in the JSON contains a positive `duration_ms`;
 - verify every action has the expected number of extracted frame PNGs;
-- verify one GIF exists per action;
+- verify one nonempty, decodable GIF exists per action and every GIF has infinite-loop metadata;
 - verify per-action GIF timing follows each frame's `duration_ms`, subject to GIF delay quantization;
 - verify `gifs/all_actions.gif` and `gifs/all_actions.json` exist;
-- verify the combined GIF duration equals its synchronization target and every source action is retimed to that target;
+- verify the combined GIF duration equals its JSON-derived synchronization target and every source action is retimed to that target;
+- inspect encoded frame delays, including the last frame: none may be below 20 ms; container duration alone cannot detect browser slowdown from 10 ms frames;
 - visually inspect at least the guide and final spritesheet when tools allow;
 - report any ImageGen inconsistency instead of pretending the animation is correct.
 
@@ -254,3 +255,4 @@ Coordinates are half-open crop rectangles conceptually: pixels from `x` through 
 - Use variable frame timing when it improves animation rhythm.
 - The combined preview must synchronize all action cycle boundaries.
 - Keep sheets reasonably small so each frame has enough visual resolution.
+

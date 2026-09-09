@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 CHROMA_FFMPEG = "0xFF00FF"
+COMBINED_FPS = 50
+COMBINED_FRAME_MS = 1000 // COMBINED_FPS
 
 
 def run(cmd: list[str]) -> None:
@@ -123,7 +125,6 @@ def build_gif(
     frame_paths: list[Path],
     durations_ms: list[int],
     out_path: Path,
-    loop: bool,
     frame_sizes: list[tuple[int, int]],
 ) -> None:
     if not frame_paths:
@@ -163,7 +164,6 @@ def build_gif(
         lines.append("option framerate 100")
         concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        loop_value = "0" if loop else "-1"
         filter_complex = (
             "[0:v]split[a][b];"
             "[a]palettegen=stats_mode=full[p];"
@@ -188,7 +188,7 @@ def build_gif(
                 "-t",
                 f"{sum(gif_durations_ms) / 1000:.6f}",
                 "-loop",
-                loop_value,
+                "0",
                 "-final_delay",
                 str(gif_durations_ms[-1] // 10),
                 str(out_path),
@@ -208,11 +208,15 @@ def combined_layout(action_count: int, mode: str = "auto") -> tuple[int, int]:
     return columns, rows
 
 
-def synchronization_plan(durations: list[float]) -> tuple[float, list[float], list[float]]:
-    """Return target duration, playback speeds, and PTS stretch factors."""
-    if not durations or any((not math.isfinite(d) or d <= 0) for d in durations):
-        raise ValueError("durations must contain positive finite values")
-    target_duration = max(durations)
+def synchronization_plan(frame_durations_ms: list[list[int]]) -> tuple[float, list[float], list[float]]:
+    """Use manifest holds and the action encoder's quantization, never GIF probes."""
+    if not frame_durations_ms or any(not frames for frames in frame_durations_ms):
+        raise ValueError("each action must contain frame durations")
+    totals_ms = [sum(quantize_gif_duration_ms(d) for d in frames) for frames in frame_durations_ms]
+    # Round upward to a whole 50 fps tick so the final frame is never 10 ms.
+    target_ms = ((max(totals_ms) + COMBINED_FRAME_MS - 1) // COMBINED_FRAME_MS) * COMBINED_FRAME_MS
+    target_duration = target_ms / 1000
+    durations = [total / 1000 for total in totals_ms]
     playback_speeds = [duration / target_duration for duration in durations]
     pts_factors = [target_duration / duration for duration in durations]
     return target_duration, playback_speeds, pts_factors
@@ -223,15 +227,22 @@ def build_combined_gif(
     ffprobe: str,
     gif_paths: list[Path],
     out_path: Path,
+    frame_durations_ms: list[list[int]],
     layout_mode: str = "auto",
 ) -> dict[str, Any]:
     """Combine one cycle of every action GIF and retime them to end together."""
     if not gif_paths:
         raise ValueError("gif_paths must not be empty")
 
-    durations = [probe_duration(ffprobe, path) for path in gif_paths]
+    if len(gif_paths) != len(frame_durations_ms):
+        raise ValueError("GIF paths and manifest actions must have matching lengths")
+    target_duration, speed_factors, pts_factors = synchronization_plan(frame_durations_ms)
+    durations = [sum(quantize_gif_duration_ms(d) for d in frames) / 1000 for frames in frame_durations_ms]
+    # Probes validate exports; they do not decide the animation timing.
+    for path, expected in zip(gif_paths, durations):
+        if not math.isclose(probe_duration(ffprobe, path), expected, abs_tol=0.001):
+            raise ValueError(f"GIF duration does not match manifest timing: {path}")
     dimensions = [probe_dimensions(ffprobe, path) for path in gif_paths]
-    target_duration, speed_factors, pts_factors = synchronization_plan(durations)
     # setpts factor is inverse playback speed: target / source.
 
     cell_w = max(width for width, _ in dimensions)
@@ -251,7 +262,7 @@ def build_combined_gif(
             f"[{index}:v]settb=AVTB,setpts=(PTS-STARTPTS)*{factor:.12f},"
             f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2:color={CHROMA_FFMPEG},"
             f"tpad=stop_mode=clone:stop_duration={target_duration:.6f},"
-            f"trim=duration={target_duration:.6f},fps=100[{label}]"
+            f"trim=duration={target_duration:.6f},fps={COMBINED_FPS}[{label}]"
         )
         labels.append(f"[{label}]")
 
@@ -286,10 +297,14 @@ def build_combined_gif(
             f"{target_duration:.6f}",
             "-loop",
             "0",
+            "-final_delay",
+            str(COMBINED_FRAME_MS // 10),
             str(out_path),
         ]
     )
     run(cmd)
+    if not math.isclose(probe_duration(ffprobe, out_path), target_duration, abs_tol=0.001):
+        raise ValueError("combined GIF duration does not match its synchronization target")
 
     return {
         "path": str(out_path),
@@ -298,14 +313,18 @@ def build_combined_gif(
         "rows": rows,
         "cell": {"width": cell_w, "height": cell_h},
         "background": "#FF00FF",
+        "timing_source": "spritesheet.json: actions[].frames[].duration_ms",
+        "fps": COMBINED_FPS,
+        "loop": 0,
         "target_duration_seconds": target_duration,
         "actions": [
             {
                 "gif": str(path),
+                "planned_duration_seconds": sum(frames) / 1000,
                 "source_duration_seconds": duration,
                 "playback_speed": speed,
             }
-            for path, duration, speed in zip(gif_paths, durations, speed_factors)
+            for path, frames, duration, speed in zip(gif_paths, frame_durations_ms, durations, speed_factors)
         ],
     }
 
@@ -344,7 +363,7 @@ def main() -> None:
             frame_path = action_dir / f"{frame['index']:03d}_{frame['id']}.png"
             crop_frame(ffmpeg, args.sheet, frame, frame_path)
             frame_paths.append(frame_path)
-            durations.append(int(frame["duration_ms"]))
+            durations.append(frame["duration_ms"])
             frame_sizes.append((int(frame["w"]), int(frame["h"])))
 
         gif_path = gifs_root / f"{action['id']}.gif"
@@ -353,7 +372,6 @@ def main() -> None:
             frame_paths,
             durations,
             gif_path,
-            bool(action.get("loop", True)),
             frame_sizes,
         )
         action_gifs.append(gif_path)
@@ -365,6 +383,7 @@ def main() -> None:
         ffprobe,
         action_gifs,
         combined_path,
+        [[frame["duration_ms"] for frame in action["frames"]] for action in manifest["actions"]],
         args.combined_layout,
     )
     metadata_path = gifs_root / "all_actions.json"

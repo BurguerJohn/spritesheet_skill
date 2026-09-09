@@ -53,7 +53,7 @@ Every frame must contain its own explicit positive `duration_ms`. Different fram
 ]
 ```
 
-FFmpeg supports this through the concat demuxer: the exporter writes a separate `duration` entry for each frame image before encoding the action GIF. GIF delays are stored at centisecond granularity, so multiples of 10 ms are preferred when practical.
+FFmpeg supports this through the concat demuxer: the exporter writes a separate `duration` entry for each frame image before encoding the action GIF. Individual GIF delays are rounded to multiples of 10 ms with a minimum of 20 ms. All GIF previews loop infinitely, including actions marked `loop=false`; that flag describes pose continuity, not preview playback.
 
 ## ImageGen-native canvas selection
 
@@ -71,16 +71,18 @@ An explicit canvas is accepted only when it is one of those supported targets.
 
 After generating the GIF for every action, `extract_and_gif.py` also creates `gifs/all_actions.gif`.
 
-The exporter measures the real duration of each generated GIF with FFprobe, uses the longest action as the shared cycle duration, and retimes every shorter action with FFmpeg `setpts`. Each source contributes exactly one cycle, so all actions reach their loop boundary at the same instant and restart together.
+The exporter derives each action duration from `spritesheet.json` by summing its frame holds after the same quantization used by the individual GIF encoder. The largest total, rounded upward to a whole 20 ms tick, is the shared cycle duration. FFmpeg `setpts` retimes each action to that target; FFprobe only validates the resulting durations. Each source contributes exactly one cycle, so all actions restart together. Shorter actions intentionally run slower in this synchronized preview.
+
+The composite is encoded at **50 fps**, including a **20 ms final-frame delay**. GIF supports 10 ms delays, but common viewers clamp those short holds to much longer delays, making a nominal 100 fps GIF play slowly. The exporter therefore never emits holds shorter than 20 ms. A 100 fps concat input time base is retained only to preserve centisecond timestamps in variable-duration individual GIFs; it is not the output frame rate.
 
 The combined layout is automatic:
 
 - 1–4 actions: one horizontal row;
 - 5+ actions: a compact near-square grid.
 
-Use `--combined-layout horizontal` or `--combined-layout grid` to override the automatic choice. Actions are padded to a common cell size without scaling their pixels. `gifs/all_actions.json` records the source durations, target duration, layout, and playback-speed factor used for each action.
+Use `--combined-layout horizontal` or `--combined-layout grid` to override the automatic choice. Actions are padded to a common cell size without scaling their pixels. `gifs/all_actions.json` records the JSON timing source, planned and quantized source durations, target duration, output fps, layout, and playback-speed factor used for each action.
 
-The composite loop is timing-perfect. Visual seamlessness still depends on the first and last poses of each action being authored as a seamless loop when `loop=true`.
+The composite duration matches the shared target, with pose transitions sampled on a 20 ms grid. Visual seamlessness still depends on the first and last poses being authored as a seamless loop. All exported GIFs repeat infinitely regardless of that pose metadata.
 
 ## Requirements
 
@@ -124,3 +126,4 @@ python scripts/extract_and_gif.py \
 ## Skill entrypoint
 
 See [`SKILL.md`](SKILL.md).
+

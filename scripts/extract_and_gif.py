@@ -111,6 +111,13 @@ def pad_frame(ffmpeg: str, source: Path, width: int, height: int, out_path: Path
     )
 
 
+def quantize_gif_duration_ms(duration_ms: int) -> int:
+    """Quantize a requested hold to GIF/FFmpeg centiseconds, minimum 20 ms."""
+    if type(duration_ms) is not int or duration_ms <= 0:
+        raise ValueError("every GIF frame needs a positive integer duration_ms")
+    return max(20, int(round(duration_ms / 10.0)) * 10)
+
+
 def build_gif(
     ffmpeg: str,
     frame_paths: list[Path],
@@ -123,9 +130,8 @@ def build_gif(
         raise ValueError("frame_paths must not be empty")
     if len(frame_paths) != len(durations_ms) or len(frame_paths) != len(frame_sizes):
         raise ValueError("frame paths, durations, and sizes must have matching lengths")
-    if any(type(duration) is not int or duration <= 0 for duration in durations_ms):
-        raise ValueError("every GIF frame needs a positive integer duration_ms")
 
+    gif_durations_ms = [quantize_gif_duration_ms(duration) for duration in durations_ms]
     max_w = max(width for width, _ in frame_sizes)
     max_h = max(height for _, height in frame_sizes)
 
@@ -142,15 +148,16 @@ def build_gif(
 
         concat_path = tmp_dir / "frames.concat.txt"
         # PNG image inputs otherwise default to a coarse 25 fps time base. Setting
-        # the image demuxer to 100 fps makes the concat timestamps centisecond-
-        # accurate, matching the native timing granularity of animated GIF.
+        # the image demuxer to 100 fps makes concat timestamps centisecond-accurate,
+        # matching GIF timing granularity.
         lines: list[str] = ["ffconcat version 1.0"]
-        for path, duration_ms in zip(normalized_paths, durations_ms):
+        for path, duration_ms in zip(normalized_paths, gif_durations_ms):
             safe = str(path.resolve()).replace("'", "'\\''")
             lines.append(f"file '{safe}'")
             lines.append("option framerate 100")
             lines.append(f"duration {duration_ms / 1000:.6f}")
-        # Concat applies a duration to an entry only when another entry follows it.
+        # A repeated final file lets concat establish the timestamp after the last
+        # intended frame. GIF's final_delay then preserves the last frame hold.
         safe_last = str(normalized_paths[-1].resolve()).replace("'", "'\\''")
         lines.append(f"file '{safe_last}'")
         lines.append("option framerate 100")
@@ -179,9 +186,11 @@ def build_gif(
                 "-fps_mode",
                 "vfr",
                 "-t",
-                f"{sum(durations_ms) / 1000:.6f}",
+                f"{sum(gif_durations_ms) / 1000:.6f}",
                 "-loop",
                 loop_value,
+                "-final_delay",
+                str(gif_durations_ms[-1] // 10),
                 str(out_path),
             ]
         )

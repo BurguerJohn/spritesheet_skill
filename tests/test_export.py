@@ -28,6 +28,15 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(speeds, [0.5, 1.0, 0.625])
         self.assertEqual(pts, [2.0, 1.0, 1.6])
 
+    def test_gif_duration_quantizes_to_centiseconds(self):
+        self.assertEqual(mod.quantize_gif_duration_ms(70), 70)
+        self.assertEqual(mod.quantize_gif_duration_ms(75), 80)
+        self.assertEqual(mod.quantize_gif_duration_ms(5), 20)
+
+    def test_gif_duration_rejects_non_positive_values(self):
+        with self.assertRaises(ValueError):
+            mod.quantize_gif_duration_ms(0)
+
 
 if __name__ == "__main__":
     unittest.main()

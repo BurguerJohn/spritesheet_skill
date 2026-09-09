@@ -141,19 +141,24 @@ def build_gif(
             normalized_paths.append(padded)
 
         concat_path = tmp_dir / "frames.concat.txt"
-        lines: list[str] = []
+        # PNG image inputs otherwise default to a coarse 25 fps time base. Setting
+        # the image demuxer to 100 fps makes the concat timestamps centisecond-
+        # accurate, matching the native timing granularity of animated GIF.
+        lines: list[str] = ["ffconcat version 1.0"]
         for path, duration_ms in zip(normalized_paths, durations_ms):
             safe = str(path.resolve()).replace("'", "'\\''")
             lines.append(f"file '{safe}'")
+            lines.append("option framerate 100")
             lines.append(f"duration {duration_ms / 1000:.6f}")
         # Concat applies a duration to an entry only when another entry follows it.
         safe_last = str(normalized_paths[-1].resolve()).replace("'", "'\\''")
         lines.append(f"file '{safe_last}'")
+        lines.append("option framerate 100")
         concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         loop_value = "0" if loop else "-1"
         filter_complex = (
-            "[0:v]fps=100,split[a][b];"
+            "[0:v]split[a][b];"
             "[a]palettegen=stats_mode=full[p];"
             "[b][p]paletteuse=dither=sierra2_4a"
         )
@@ -171,6 +176,8 @@ def build_gif(
                 str(concat_path),
                 "-filter_complex",
                 filter_complex,
+                "-fps_mode",
+                "vfr",
                 "-t",
                 f"{sum(durations_ms) / 1000:.6f}",
                 "-loop",

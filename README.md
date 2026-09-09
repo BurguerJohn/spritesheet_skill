@@ -31,7 +31,9 @@ spritesheet_generated.png
     ↓
 FFmpeg crops using spritesheet.json
     ├── frames/<action>/*.png
-    └── gifs/<action>.gif
+    ├── gifs/<action>.gif
+    ├── gifs/all_actions.gif
+    └── gifs/all_actions.json
 ```
 
 The critical rule is that **Pillow-generated geometry and `spritesheet.json` are the source of truth**. Image generation is not allowed to redefine the boxes.
@@ -47,6 +49,21 @@ By default, planning JSON should use:
 `build_layout.py` evaluates the supported generation targets `1024x1024`, `1536x1024`, and `1024x1536`. It selects the canvas that gives the planned frames the largest useful short side, then prefers frame shapes closer to square. This makes the choice depend on the actual number of action rows and frames per action instead of using a fixed square sheet.
 
 An explicit canvas is accepted only when it is one of those supported targets.
+
+## Synchronized combined GIF
+
+After generating the GIF for every action, `extract_and_gif.py` also creates `gifs/all_actions.gif`.
+
+The exporter measures the real duration of each generated GIF with FFprobe, uses the longest action as the shared cycle duration, and retimes every shorter action with FFmpeg `setpts`. Each source contributes exactly one cycle, so all actions reach their loop boundary at the same instant and restart together.
+
+The combined layout is automatic:
+
+- 1–4 actions: one horizontal row;
+- 5+ actions: a compact near-square grid.
+
+Use `--combined-layout horizontal` or `--combined-layout grid` to override the automatic choice. Actions are padded to a common cell size without scaling their pixels. `gifs/all_actions.json` records the source durations, target duration, layout, and playback-speed factor used for each action.
+
+The composite loop is timing-perfect. Visual seamlessness still depends on the first and last poses of each action being authored as a seamless loop when `loop=true`.
 
 ## Requirements
 
@@ -78,7 +95,7 @@ python scripts/normalize_sheet.py \
   output/spritesheet_generated.png
 ```
 
-Then export frames and GIFs:
+Then export frames, per-action GIFs, and the synchronized combined GIF:
 
 ```bash
 python scripts/extract_and_gif.py \
